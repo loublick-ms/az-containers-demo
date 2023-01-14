@@ -1,7 +1,9 @@
 # az-containers-demo
 Project to demo creating, maintaining, and deploying .NET Core apps natively and containerized on Azure PaaS services such as Azure App Service, Azure Kubernetes Service, Azure Container Apps, and Azure Container Instance.
 
-## Clone the repo
+## Prepare the app for deployment to Azure cloud servivces
+
+### Clone the repo
 Use `git clone` to clone the git repo locally on your and select the main branch
 
 ```console
@@ -9,47 +11,96 @@ git clone https://github.com/loublick-ms/az-container-demo
 git branch -m main
 ```
 
-## Intialize and test the local database
-Run the local SQLite database migrations and run the app locally.
-Prepare the database:
-`dotnet ef database update`
-Run the application locally
+### Create a local database
+Use the SQLite database for immediate testing of the code and any database schema changes.
+
+Prepare the database by running the dotnet database migrations.
+```console
+dotnet ef database update
+```
+Run the app locally to test the code and database schema. 
+```console
 dotnet run
-http://localhost:5000
+```
 
-## Create an Azure Resource Group
+### Create an Azure Resource Group
 Create a resource group in Azure to contain all of the services required to complete this demo.
+```console
 az group create --name rg-container-demo --location "East US"
+```
 
-## Create the Azure SQL Database Server
+### Create an Azure SQL database server
+Create an Azure SQL database server to be used by the app when deployed in the cloud.
+```console
 az sql server create --name dbs-container-demo --resource-group rg-container-demo --location "East US" --admin-user <db admin username> --admin-password <admin password>
+```
 
-# Create the Azure SQL database and show the connection string
+### Create the Azure SQL database
+Create the SQL Server database on the SQL Server that was just create and display the connection string. Copy and save the connection string for later use in configuring the app and the cloud services.
+```console
 az sql db create --resource-group rg-container-demo --server dbs-container-demo --name todoDB --service-objective S0
 az sql db show-connection-string --client ado.net --server dbs-container-demo --name todoDB
+```
 
+### Update the C# code to connect to the Azure SQL database
+Update the database context in Startup.cs to connect to the Azure SQL database instead of the local SQLite database
 
-# Update the application code to connect to the Azure SQL Database instead of the local SQLite database
-services.AddDbContext<MyDatabaseContext>(options => options.UseSqlServer(Configuration.GetConnectionString("MyDbConnection")));
+`services.AddDbContext<MyDatabaseContext>(options => options.UseSqlServer(Configuration.GetConnectionString("MyDbConnection")));`
 
-# Delete the database migrations associated with the SQLite database
+### Update the .NET Entity Framework code to access the Azure SQL database
+Delete the database migrations associated with the SQLite database.
+```console
 rm -r Migrations
+```
 
-# Recreate migrations with UseSqlServer (see previous snippet)
+Recreate migrations for Azure SQL
+```console
 dotnet ef migrations add InitialCreate
+```
 
-# Set connection string to production database in Powershell
+Create an Azure SQL database connection string environment variable in Powershell.
+```console
 $env:ConnectionStrings:MyDbConnection=<database connection string>
+```
 
-# Run database migrations for Azure SQL Database
+Run the .NET database migrations for Azure SQL database to create the database schema.
+```console
 dotnet ef database update
+```
 
-# Run the web app locally with the Azure SQL Database
+Run the web app locally with the Azure SQL database.
+```console
 dotnet run
+```
 
-# Prepare code changes for commit and perform the commit
-git add .
-git commit -m "Connect to SQLDB in Azure"
+## Build a container image for the app and store it in Azure Container Registry
+
+### Create a container image for the app.
+Create a Dockerfile to build the container image.
+```
+FROM mcr.microsoft.com/dotnet/sdk:7.0 AS build
+WORKDIR /source
+
+# copy csproj and restore as distinct layers
+COPY todoapp/*.csproj .
+RUN dotnet restore --use-current-runtime  
+
+# copy everything else and build app
+COPY todoapp/. .
+RUN dotnet publish -c Release -o /app --self-contained
+#--use-current-runtime --self-contained false --no-restore
+
+# final stage/image
+FROM mcr.microsoft.com/dotnet/aspnet:7.0
+WORKDIR /app
+COPY --from=build /app .
+ENTRYPOINT ["dotnet", "todoapp.dll"]
+```
+
+
+
+
+
 
 # Configure the deployment user
 az webapp deployment user set --user-name <app service admin username> --password <app service password>
