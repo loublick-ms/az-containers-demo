@@ -1,12 +1,13 @@
 # az-containers-demo
-Project to demo creating, maintaining, and deploying containerized apps on Azure cloud services.
+Project to demo creating, maintaining, and deploying .NET Core apps natively and containerized on Azure PaaS services such as Azure App Service, Azure Kubernetes Service, Azure Container Apps, and Azure Container Instance.
 
-
-# Clone git repo and select the main codeline
+## Clone the repo
+Use `git clone` to clone the git repo locally on your and select the main branch
 git clone https://github.com/loublick-ms/az-container-demo
 git branch -m main
 
-# Run the local SQLite database migrations and run the app locally
+## Intialize and test the local database
+Run the local SQLite database migrations and run the app locally
 dotnet ef database update
 dotnet run
 http://localhost:5000
@@ -15,15 +16,11 @@ http://localhost:5000
 az group create --name rg-container-demo --location "East US"
 
 # Create the Azure SQL Database logical server
-az sql server create --name dbs-container-demo --resource-group rg-container-demo --location "East US" --admin-user dba-container-demo --admin-password D@tabas3@dmin
+az sql server create --name dbs-container-demo --resource-group rg-container-demo --location "East US" --admin-user <db admin username> --admin-password <admin password>
 
 # Create the Azure SQL database and show the connection string
 az sql db create --resource-group rg-container-demo --server dbs-container-demo --name todoDB --service-objective S0
 az sql db show-connection-string --client ado.net --server dbs-container-demo --name todoDB
-
-CONNECTION STRING:
-"Server=tcp:dbs-container-demo.database.windows.net,1433;Database=todoDB;User ID=dba-container-demo;Password=D@tabas3@dmin;Encrypt=true;Connection Timeout=30;"
-
 
 
 # Update the application code to connect to the Azure SQL Database instead of the local SQLite database
@@ -36,7 +33,7 @@ rm -r Migrations
 dotnet ef migrations add InitialCreate
 
 # Set connection string to production database in Powershell
-$env:ConnectionStrings:MyDbConnection="Server=tcp:dbs-container-demo.database.windows.net,1433;Database=todoDB;User ID=dba-container-demo;Password=D@tabas3@dmin;Encrypt=true;Connection Timeout=30;"
+$env:ConnectionStrings:MyDbConnection=<database connection string>
 
 
 # Run database migrations for Azure SQL Database
@@ -50,7 +47,7 @@ git add .
 git commit -m "Connect to SQLDB in Azure"
 
 # Configure the deployment user
-az webapp deployment user set --user-name lxbasadmin --password AppS3rv1c3Adm1n135
+az webapp deployment user set --user-name <app service admin username> --password <app service password>
 
 # Create the App Service Plan
 az appservice plan create --name asp-appsrv-sql-demo --resource-group rg-appsrv-sql-demo --sku FREE
@@ -69,11 +66,11 @@ az sql server firewall-rule create --name AllowLocalClient --server dbs-appsrv-s
 
 
 LOCAL GIT
-https://lxbasadmin@wa-appsrv-sql-demo.scm.azurewebsites.net/wa-appsrv-sql-demo.git
+https://<app service admin username>@wa-appsrv-sql-demo.scm.azurewebsites.net/wa-appsrv-sql-demo.git
 
 
 # Configure the web app with the connection string for the Azure SQL Database 
-az webapp config connection-string set --resource-group rg-appsrv-sql-demo --name wa-appsrv-sql-demo --settings MyDbConnection='Server=tcp:dbs-appsrv-sql-demo.database.windows.net,1433;Database=coreDB;User ID=dba-appsrv-sql-demo;Password=D@tabas3@dmin;Encrypt=true;Connection Timeout=30;' --connection-string-type SQLAzure
+az webapp config connection-string set --resource-group rg-appsrv-sql-demo --name wa-appsrv-sql-demo --settings MyDbConnection='<database connection string>' --connection-string-type SQLAzure
 
 # Configure the Azure deployment to use the main branch of the remote git repo
 az webapp config appsettings set --name wa-appsrv-sql-demo --resource-group rg-appsrv-sql-demo --settings DEPLOYMENT_BRANCH='main'
@@ -90,7 +87,7 @@ https://wa-appsrv-sql-demo.azurewebsites.net
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 # Configure the deployment user
-az webapp deployment user set --user-name lxbasadmin --password AppS3rv1c3Adm1n135
+az webapp deployment user set --user-name <app service admin username> --password <app service admin password>
 
 # Create unique web app name
 $webappname="mywebapp" + $(Get-Random)
