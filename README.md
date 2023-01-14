@@ -3,19 +3,25 @@ Project to demo creating, maintaining, and deploying .NET Core apps natively and
 
 ## Clone the repo
 Use `git clone` to clone the git repo locally on your and select the main branch
+
+```console
 git clone https://github.com/loublick-ms/az-container-demo
 git branch -m main
+```
 
 ## Intialize and test the local database
-Run the local SQLite database migrations and run the app locally
-dotnet ef database update
+Run the local SQLite database migrations and run the app locally.
+Prepare the database:
+`dotnet ef database update`
+Run the application locally
 dotnet run
 http://localhost:5000
 
-# Create the Azure resource group
+## Create an Azure Resource Group
+Create a resource group in Azure to contain all of the services required to complete this demo.
 az group create --name rg-container-demo --location "East US"
 
-# Create the Azure SQL Database logical server
+## Create the Azure SQL Database Server
 az sql server create --name dbs-container-demo --resource-group rg-container-demo --location "East US" --admin-user <db admin username> --admin-password <admin password>
 
 # Create the Azure SQL database and show the connection string
@@ -34,7 +40,6 @@ dotnet ef migrations add InitialCreate
 
 # Set connection string to production database in Powershell
 $env:ConnectionStrings:MyDbConnection=<database connection string>
-
 
 # Run database migrations for Azure SQL Database
 dotnet ef database update
