@@ -266,24 +266,35 @@ az role assignment create --assignee $principalId --scope $registryId --role "Ac
 
 ### Create the App Service that will run the app container
 Create the App Service Plan that will host the App Service using the `az appservice plan create` command. The App Service Plan corresponds to the virtual machine hosts that will run the web app.
+```console
 az appservice plan create --name asp-container-demo --resource-group rg-container-demo --is-linux
+```
 
 Create the App Service using the `az webapp create` command.
+```console
 az webapp create --resource-group rg-container-demo --plan asp-container-demo --name wa-container-demo --deployment-container-image-name acrcontainerdemo.azurecr.io/todoapp:v2
+```
 
 Enable the user-assigned managed identity in the web app with the `az webapp identity assign` command.
+```console
 $id=$(az identity show --resource-group rg-container-demo --name id-container-demo --query id --output tsv)
 az webapp identity assign --resource-group rg-container-demo --name wa-container-demo --identities $id
+```
 
 Configure your app to pull from Azure Container Registry by using managed identities with the `az resource update` command with the webapp configuration.
+```console
 $appConfig=$(az webapp config show --resource-group rg-container-demo --name wa-container-demo --query id --output tsv)
 az resource update --ids $appConfig --set properties.acrUseManagedIdentityCreds=True
+```
 
 Set the client ID your web app uses to pull from Azure Container Registry. This step isn't needed if you use the system-assigned managed identity.
+```console
 $clientId=$(az identity show --resource-group rg-container-demo --name id-container-demo --query clientId --output tsv)
 az resource update --ids $appConfig --set properties.AcrUserManagedIdentityID=$clientId
+```
 
 Enable CI/CD in the webapp by creating a webhook using the `az acr webhook create` command
+```console
 $ciCdUrl=$(az webapp deployment container config --enable-cd true --name wa-container-demo --resource-group rg-container-demo --query CI_CD_URL --output tsv)
 az acr webhook create --name cd-as-container-demo --registry acrcontainerdemo --uri $ciCdUrl --actions push --scope todoapp:v2
-
+```
