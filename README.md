@@ -257,7 +257,7 @@ Create a managed identity to authenticate with the container registry using the 
 az identity create --name id-container-demo --resource-group rg-container-demo
 ```
 
-Retrieve the managed identity principal ID and registry ID and authorize the principal to pull images from the container registry using the `az role` command.
+Retrieve the managed identity principal ID and registry ID and authorize the principal to pull images from the container registry using the `az role assignment create` command.
 ```console
 $principalId=$(az identity show --resource-group rg-container-demo --name id-container-demo --query principalId --output tsv)
 $registryId=$(az acr show --resource-group rg-container-demo --name acrcontainerdemo --query id --output tsv)
@@ -293,7 +293,7 @@ $clientId=$(az identity show --resource-group rg-container-demo --name id-contai
 az resource update --ids $appConfig --set properties.AcrUserManagedIdentityID=$clientId
 ```
 
-Enable CI/CD in the webapp by creating a webhook using the `az acr webhook create` command
+Enable CI/CD in the webapp by creating a webhook using the `az acr webhook create` command.
 ```console
 $ciCdUrl=$(az webapp deployment container config --enable-cd true --name wa-container-demo --resource-group rg-container-demo --query CI_CD_URL --output tsv)
 az acr webhook create --name cd-as-container-demo --registry acrcontainerdemo --uri $ciCdUrl --actions push --scope todoapp:v2
