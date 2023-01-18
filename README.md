@@ -1,5 +1,12 @@
-# az-containers-demo
-Project to demo creating, maintaining, and deploying .NET Core apps natively and containerized on Azure PaaS services such as Azure App Service, Azure Kubernetes Service, Azure Container Apps, and Azure Container Instance.
+# About
+Repo az-container-demo can be used to demo creating, maintaining, and deploying .NET Core apps natively and containerized on Azure PaaS services. The options for running containerized apps and the scenario that each is best suited for follows:
+
+* Azure App Service: Best suited for monolithic app workloads that require HTTP-based access and the desire to not manage any infrastructure.
+* Azure Container Apps: Best suited for stateless microservices workloads without having to manage any infrastructure or container orchestration.
+* Azure Container Instance: Best suited for easy configuration and deployment of app container where uptime is not a priority.
+* Azure Kubernetes Service: Best suited for running containerized workloads at scale, where all of the other options have failed to meet the need.
+
+The .NET project is the standard To-Do app commonly used in Azure learning modules and repos. It is configured for ASP.NET Core and .NET Core 7.0. This repo can demonstrate the full application lifecycle, including development, test, deploy, and CI/CD.
 
 ## Prepare the app for deployment to Azure cloud servivces
 
@@ -9,6 +16,24 @@ Use `git clone` to clone the git repo locally on your and select the main branch
 ```console
 git clone https://github.com/loublick-ms/az-container-demo
 git branch -m main
+```
+The project structure will look as follows:
+```
+- AZ-CONTAINER-DEMO
+  - todoapp
+    - Controllers
+    - Data
+    - Migrations
+    - Models
+    - Properties
+    - Views
+    - wwwroot
+  - .gitignore
+  - Dockerfile
+  - CONTRIBUTING.md
+  - LICENSE
+  - LICENSE.md
+  - README.md
 ```
 
 ### Create a local database
@@ -58,7 +83,7 @@ Recreate migrations for Azure SQL
 dotnet ef migrations add InitialCreate
 ```
 
-Create an Azure SQL database connection string environment variable in Powershell.
+Create an Azure SQL database connection string environment variable in Powershell. This env variable will be used by the .NET Entity Framework `dotnet ef` command to initialize the Azure SQL datbase schema for the app.
 ```console
 $env:ConnectionStrings:MyDbConnection=<database connection string>
 ```
@@ -76,97 +101,189 @@ dotnet run
 ## Build a container image for the app and store it in Azure Container Registry
 
 ### Create a container image for the app.
-Create a Dockerfile to build the container image.
+Create a Dockerfile that will be used to build the container image. The file should be located in the project root directory and include both the .NET restore and publish tasks, as show in the example below:
+
 ```
+# todoapp Dockerfile example
 FROM mcr.microsoft.com/dotnet/sdk:7.0 AS build
 WORKDIR /source
 
-# copy csproj and restore as distinct layers
+# Copy csproj and restore the project as distinct layers
 COPY todoapp/*.csproj .
 RUN dotnet restore --use-current-runtime  
 
-# copy everything else and build app
+# Copy the remaining app files and build app
 COPY todoapp/. .
 RUN dotnet publish -c Release -o /app --self-contained
-#--use-current-runtime --self-contained false --no-restore
 
-# final stage/image
+# Final stage: build the container image
 FROM mcr.microsoft.com/dotnet/aspnet:7.0
 WORKDIR /app
 COPY --from=build /app .
 ENTRYPOINT ["dotnet", "todoapp.dll"]
 ```
 
+### Create the container image using the Dockerfile.
+The image will be stored in your local Docker Desktop image registry. Run the `docker build` command from the project root directory.
+```console
+docker build -t todoapp .
+```
 
+Run the containerized app locally in Docker Desktop to test the app. Use the `docker run` command to run the container.
+```console
+docker run -it --rm -p 8000:80 --name todoapp todoapp
+```
 
+### Store the Docker image in Azure Container Registry
+Create a container registry in Azure using the Azure CLI with the `az acr create` command. When naming your registry, you can only use alpha numeric characters. 
+```console
+az acr create --name acrcontainerdemo --resource-group rg-container-demo --sku standard --admin-enabled true
+```
 
+Display the credentials of the registry you just created using `az acr credential show`. These credentials will be used to connect Docker to your container registry in Azure.
+```console
+az acr credential show --name acrcontainerdemo --resource-group rg-container-demo
+```
 
+Connect Docker to your registry using the `docker login` command. Use the credentials displayed by the `az acr credential show` command.
+```console
+docker login acrcontainerdemo.azurecr.io
+```
 
-# Configure the deployment user
-az webapp deployment user set --user-name <app service admin username> --password <app service password>
+Next, create the image alias in Docker that will be pushed to ACR. Before you push an image, you must create an alias for the image that specifies the repository and tag that the Docker registry creates. The repository name must be of the form *<login_server>/<image_name>:<tag/>. Use the `docker tag` command to perform this operation. 
+```console
+docker tag todoapp acrcontainerdemo.azurecr.io/todoapp:v1
+```
+If you run `docker image ls`, you will see two entries for the image: one with the original name, and the second with the new alias.
 
-# Create the App Service Plan
-az appservice plan create --name asp-appsrv-sql-demo --resource-group rg-appsrv-sql-demo --sku FREE
+Next push the Docker container image to the registry using the `docker push` command. 
+```console
+docker push acrcontainerdemo.azurecr.io/todoapp:v1
+```
 
-# Create the web app
-az webapp create --resource-group rg-appsrv-sql-demo --plan asp-appsrv-sql-demo --name wa-appsrv-sql-demo --deployment-local-git
+If you run the `az acr repository list` command, you will see the image in a list of all images. Alternatively, you can use the `az acr repository show` command to display the list of images for a specific repository.
+```console
+az acr repository list --name acrcontainerdemo.azurecr.io
+az acr repository show --repository todoapp --name acrcontainerdemo.azurecr.io
+```
 
-# Get local IP of web app
-az webapp config hostname get-external-ip --webapp-name wa-appsrv-sql-demo --resource-group rg-appsrv-sql-demo
+## Deploy the image to an Azure Kubernetes Cluster
+Run the app container image in an Azure Kubernetes Cluster.
 
-# Disable access for all IP address ranges
-az sql server firewall-rule create --resource-group rg-appsrv-sql-demo --server dbs-appsrv-sql-demo --name AllowAzureIps --start-ip-address 0.0.0.0 --end-ip-address 0.0.0.0
+### Create and configure AKS cluster
+Create an AKS cluster using the `az aks create` command  with the `--enable-addons monitoring` and `--enable-msi-auth-for-monitoring` parameter to enable Azure Monitor Container insights with managed identity authentication.
+```console
+az aks create -g rg-container-demo -n kc-container-demo --attach-acr acrcontainerdemo --enable-managed-identity --node-count 1 --enable-addons monitoring --enable-msi-auth-for-monitoring  --generate-ssh-keys
+```
 
-# Enable access for this client IP address range
-az sql server firewall-rule create --name AllowLocalClient --server dbs-appsrv-sql-demo --resource-group rg-appsrv-sql-demo --start-ip-address=<webapp-ip> --end-ip-address=<webapp-ip>
+Manage your new cluster with the command-line client kubectl. Download the AKS cluster credentials for use by kubectl.
+```console
+az aks get-credentials --resource-group rg-container-demo --name kc-container-demo
+```
+The credentials will be merged into the ~/.kube/config file.
 
+Verify the credentials by running the `kubectl get` command. This command will return a list of nodes in the cluster.
+```console
+kubectl get nodes
+```
 
-LOCAL GIT
-https://<app service admin username>@wa-appsrv-sql-demo.scm.azurewebsites.net/wa-appsrv-sql-demo.git
+### Deploy the app container image to the AKS cluster
+Create a Kubernetes manifest file to define the desired state of the cluster such as which container images to run. The manifest file is written in yaml, as shown in the example below:
+```console
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: todoapp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: todoapp
+  template:
+    metadata:
+      labels:
+        app: todoapp
+    spec:
+      nodeSelector:
+        "kubernetes.io/os": linux
+      containers:
+      - name: todoapp
+        image: acrcontainerdemo.azurecr.io/todoapp:v2
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 250m
+            memory: 256Mi
+        ports:
+        - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: todoapp
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+  selector:
+    app: todoapp
+```
 
+Apply the manifest file to the cluster to deploy the container image from Azure Container Registry. Test the app by accessing the public IP of the default AKS load balancer. It may take a couple of minutes for the app deployment to complete.
+```console
+kubectl apply -f .\todoapp.yaml
+```
+Test the app container running in AKS.
 
-# Configure the web app with the connection string for the Azure SQL Database 
-az webapp config connection-string set --resource-group rg-appsrv-sql-demo --name wa-appsrv-sql-demo --settings MyDbConnection='<database connection string>' --connection-string-type SQLAzure
+## Deploy the image to an Azure Container Instance
+Run the app container image in an Azure Container Instance.
 
-# Configure the Azure deployment to use the main branch of the remote git repo
-az webapp config appsettings set --name wa-appsrv-sql-demo --resource-group rg-appsrv-sql-demo --settings DEPLOYMENT_BRANCH='main'
+### Create an Azure Container Instance and deploy the container image
+Deploy and run the app container in Azure Container Instance using the `az container create` command. Note that the first time 'az container create` is run, the command will create an Azure Container Instance service using the name provided in the command. Thereafter, you will use the same command to deploy updated container images using the tag to differentiate the images.
+```console
+az container create --resource-group rg-container-demo --name aci-container-demo --image acrcontainerdemo.azurecr.io/todoapp:latest --dns-name-label dns-container-demo --registry-username <registry username> --registry-password <registry password>
+```
+### Test the app container running in ACI using the Fully-Qualified Domain Name
+The FQDN is located in the Azure portal in the ACI Overview blade. 
 
-# Add an Azure remote deployment git repo
-git remote add azure https://lxbasadmin@wa-appsrv-sql-demo.scm.azurewebsites.net/wa-appsrv-sql-demo.git
+## Deploy the image to an Azure App Service
+Run the app container image in an Azure App Service.
 
-# Push to the Azure remote git repo to deploy the web app
-git push azure main
+### Create a user-managed identity and authorize it for access to the container registry
+Create a managed identity to authenticate with the container registry using the `az identity` command.
+```console
+az identity create --name id-container-demo --resource-group rg-container-demo
+```
 
-# Run the web app deployed to Azure
-https://wa-appsrv-sql-demo.azurewebsites.net
+Retrieve the managed identity principal ID and registry ID and authorize the principal to pull images from the container registry using the `az role` command.
+```console
+$principalId=$(az identity show --resource-group rg-container-demo --name id-container-demo --query principalId --output tsv)
+$registryId=$(az acr show --resource-group rg-container-demo --name acrcontainerdemo --query id --output tsv)
+az role assignment create --assignee $principalId --scope $registryId --role "AcrPull"
+```
 
----------------------------------------------------------------------------------------------------------------------------------------------------------------
+### Create the App Service that will run the app container
+Create the App Service Plan that will host the App Service using the `az appservice plan create` command. The App Service Plan corresponds to the virtual machine hosts that will run the web app.
+az appservice plan create --name asp-container-demo --resource-group rg-container-demo --is-linux
 
-# Configure the deployment user
-az webapp deployment user set --user-name <app service admin username> --password <app service admin password>
+Create the App Service using the `az webapp create` command.
+az webapp create --resource-group rg-container-demo --plan asp-container-demo --name wa-container-demo --deployment-container-image-name acrcontainerdemo.azurecr.io/todoapp:v2
 
-# Create unique web app name
-$webappname="mywebapp" + $(Get-Random)
+Enable the user-assigned managed identity in the web app with the `az webapp identity assign` command.
+$id=$(az identity show --resource-group rg-container-demo --name id-container-demo --query id --output tsv)
+az webapp identity assign --resource-group rg-container-demo --name wa-container-demo --identities $id
 
-# Create the web app in Azure
-az webapp create --resource-group rg-appsrv-sql-demo --plan asp-appsrv-sql-demo --name $webappname --deployment-local-git
+Configure your app to pull from Azure Container Registry by using managed identities with the `az resource update` command with the webapp configuration.
+$appConfig=$(az webapp config show --resource-group rg-container-demo --name wa-container-demo --query id --output tsv)
+az resource update --ids $appConfig --set properties.acrUseManagedIdentityCreds=True
 
-LOCAL GIT URL
-https://lxbasadmin@mywebapp1320142488.scm.azurewebsites.net/mywebapp1320142488.git
+Set the client ID your web app uses to pull from Azure Container Registry. This step isn't needed if you use the system-assigned managed identity.
+$clientId=$(az identity show --resource-group rg-container-demo --name id-container-demo --query clientId --output tsv)
+az resource update --ids $appConfig --set properties.AcrUserManagedIdentityID=$clientId
 
-
-# Set the deployment branch to main in the appsettings configuration
-az webapp config appsettings set --name $webappname --resource-group rg-appsrv-sql-demo --settings DEPLOYMENT_BRANCH=main
-
-# Display the web app URL for use later
-echo Web app URL: http://$webappname.azurewebsites.net
-
-# Add the remote git URL to the local repo
-# git remote add azure https://lxbasadmin@mywebapp1320142488.scm.azurewebsites.net/mywebapp1320142488.git
-
-# Push the local main branch
-git push azure main 
-
-# Run the web app deployed to Azure
-https://mywebapp1320142488.azurewebsites.net
+Enable CI/CD in the webapp by creating a webhook using the `az acr webhook create` command
+$ciCdUrl=$(az webapp deployment container config --enable-cd true --name wa-container-demo --resource-group rg-container-demo --query CI_CD_URL --output tsv)
+az acr webhook create --name cd-as-container-demo --registry acrcontainerdemo --uri $ciCdUrl --actions push --scope todoapp:v2
 
